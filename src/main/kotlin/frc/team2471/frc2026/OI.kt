@@ -103,30 +103,6 @@ object OI {
         driverController.menu().onTrue(Drive.zeroGyroCommand()) // Zero Gyro
         driverController.view().onTrue(use { Drive.pose = Pose2d(Translation2d(3.0, 3.0), Drive.heading) }) // Reset Odometry Position
 
-        (driverController.y().and(driverController.dpadDown().negate())).onTrue(Intake.home())
-
-        driverController.rightTrigger(0.1)
-            .or(driverController.rightBumper())
-            .or(driverController.rightStick())
-            .whileTrue(Shooter.shootOrRamp())
-
-        driverController.leftBumper().and(driverController.dpadDown().negate()).whileTrue(use {
-            this.periodic {
-                Intake.deploy()
-                Intake.intakeState = Intake.IntakeState.INTAKING
-            }
-        }.onCancel {
-            Intake.intakeState = Intake.IntakeState.OFF
-        })
-
-        driverController.leftStick().onTrue(use {
-            if (Intake.isDeployed) {
-                Intake.stow()
-            } else {
-                Intake.deploy()
-            }
-        })
-
         driverController.a().whileTrue(
             Drive.snakeMode()
         )
@@ -135,27 +111,6 @@ object OI {
                 Drive.xPose()
             }
         })
-
-        driverController.a().onTrue(use {
-            Intake.deploySetpoint = Intake.DEEP_STOW_POSE
-        })
-        driverController.x().onTrue(use {
-            Intake.deploySetpoint = Intake.STOW_POSE
-        })
-        driverController.b().onTrue(use {
-            Intake.deploySetpoint = Intake.DEPLOY_POSE
-        })
-
-        (driverController.dpadDown().and(driverController.y())).onTrue(Intake.homeDeploy())
-        (driverController.dpadDown().and(driverController.leftBumper())).onTrue(use { Intake.deepStow() })
-
-        driverController.dpadLeft().whileTrue(Turret.staticAimAtTarget())
-        driverController.dpadRight().whileTrue(FieldManager.disableAutoHoodRetractionCommand())
-
-        driverController.dpadUp().onTrue(use { Turret.offset -= 2.0.degrees})
-        driverController.dpadDown().and(driverController.y().negate()).and(driverController.leftBumper().negate()).onTrue(use { Turret.offset += 2.0.degrees})
-
-
 
         Scheduler.getDefault().addPeriodic {
             LoopLogger.record("b4 OI piodc")

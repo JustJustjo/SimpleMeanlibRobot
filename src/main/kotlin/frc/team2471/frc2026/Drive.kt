@@ -37,6 +37,7 @@ import org.wpilib.driverstation.RobotState
 import org.wpilib.math.controller.PIDController
 import org.wpilib.math.geometry.Pose2d
 import org.wpilib.math.geometry.Rotation2d
+import org.wpilib.math.geometry.Translation2d
 import org.wpilib.math.interpolation.Interpolator
 import org.wpilib.math.interpolation.InverseInterpolator
 import org.wpilib.math.kinematics.ChassisVelocities
@@ -47,21 +48,6 @@ import kotlin.math.atan2
 
 
 object Drive: SwerveDriveSubsystem(DriveConstants.drivetrainConstants, *DriveConstants.moduleConfigs) {
-    private val table = NetworkTableInstance.getDefault().getTable("Drive")
-
-    private val frontLeftConnectedEntry = table.getEntry("FrontLeftConnected")
-    private val frontRightConnectedEntry = table.getEntry("FrontRightConnected")
-    private val backLeftConnectedEntry = table.getEntry("BackLeftConnected")
-    private val backRightConnectedEntry = table.getEntry("BackRightConnected")
-
-    val increaseDriveCurrentEntry = table.getEntry("IncreaseDriveCurrent")
-    val increaseDriveCurrent get() = increaseDriveCurrentEntry.getBoolean(false)
-    var prevIncreaseDriveCurrent = increaseDriveCurrent
-
-    val useAprilTagsEntry = table.getEntry("UseAprilTags")
-
-    val useAprilTags: Boolean get() = useAprilTagsEntry.getBoolean(true)
-
 
     // To reset position use this, also add other pose sources that need reset here.
     override var pose: Pose2d
@@ -76,6 +62,7 @@ object Drive: SwerveDriveSubsystem(DriveConstants.drivetrainConstants, *DriveCon
             resetRotation(value)
             resetPoseTime = Timer.getMonotonicTimestamp()
         }
+    override var centerOfRotation = Translation2d(0.0, 0.0)
 
     var headingAngleUnwrapped: Angle = heading.measure
         get() = heading.measure.unWrap(field)
@@ -84,7 +71,7 @@ object Drive: SwerveDriveSubsystem(DriveConstants.drivetrainConstants, *DriveCon
 
     private var resetPoseTime = 0.0
 
-    override val autoPilot = createAPObject(Double.POSITIVE_INFINITY.inchesPerSecond, 100.0.metersPerSecondPerSecond, 2.0.metersPerSecondPerSecond.perSecond, 0.5.inches, 1.0.degrees) TODO
+    override val autoPilot = createAPObject(Double.POSITIVE_INFINITY.inchesPerSecond, 100.0.metersPerSecondPerSecond, 2.0.metersPerSecondPerSecond.perSecond, 0.5.inches, 1.0.degrees)
     val fastAutoPilot = createAPObject(Double.POSITIVE_INFINITY.inchesPerSecond, 100.0.metersPerSecondPerSecond, 5.0.metersPerSecondPerSecond.perSecond, 0.5.inches, 1.0.degrees)
     val slowAutoPilot = createAPObject(Double.POSITIVE_INFINITY.inchesPerSecond, 100.0.metersPerSecondPerSecond, 0.5.metersPerSecondPerSecond.perSecond, 0.25.inches, 1.0.degrees)
 
@@ -105,21 +92,12 @@ object Drive: SwerveDriveSubsystem(DriveConstants.drivetrainConstants, *DriveCon
     init {
         println("inside Drive init")
 
-        useAprilTagsEntry.setBoolean(true)
-        increaseDriveCurrentEntry.setBoolean(false)
-
-        // MUST start inside the field on bootup for accurate heading measurements due to a PoseLocalizer bug.
         pose = Pose2d(3.0, 3.0, heading)
-
-//        zeroGyro()
 
         println("max acceleration ${DriveConstants.kMaxAcceleration.asMetersPerSecondPerSecond}")
 
-        localizer.trackAllTags()
-        localizer.disableSingleTagCalculation() // for loop times and we dont use it in 2026
-
         setDefaultCommand {
-            await(joystickDrive())
+            await(joystickVelocityDrive())
         }
 
         finalInitialization()
@@ -128,66 +106,12 @@ object Drive: SwerveDriveSubsystem(DriveConstants.drivetrainConstants, *DriveCon
     override fun periodic() {
         LoopLogger.record("Inside Drive periodic")
 
-        if (RobotState.isTeleopEnabled()) {
-            if (increaseDriveCurrent != prevIncreaseDriveCurrent) {
-                if (increaseDriveCurrent) {
-                    setDriveCurrentLimits(DriveConstants.driveMaxCurrentLimits)
-                } else {
-                    setDriveCurrentLimits(DriveConstants.driveTeleCurrentLimits)
-                }
-
-                prevIncreaseDriveCurrent = increaseDriveCurrent
-            }
-        }
-
-        LoopLogger.record("b4 Drive piodc")
         super.periodic()
-        LoopLogger.record("super Drive piodc")
-
-        // Update Vision
-        cameras.forEach {
-            it.updateInputs()
-        }
-        LoopLogger.record("Drive camera updateInputs")
-
-
-//        frontLeftConnectedEntry.setBoolean(cameras[0].isConnected)
-//        frontRightConnectedEntry.setBoolean(cameras[1].isConnected)
-//        backLeftConnectedEntry.setBoolean(cameras[2].isConnected)
-//        backRightConnectedEntry.setBoolean(cameras[3].isConnected)
-
-        LoopLogger.record("Camera Connected Publisher")
-
-        // Update poses with processed particle filter estimates.
-        localizer.updateWithLatestPoseEstimate()
-        LoopLogger.record("Drive updateWithLatestPose")
-        // Create an odom measurement with a timestamp converted from phoenix time to fpga time.
-        val poseMeasurement = PoseLocalizer.OdometryMeasurement(pose, stateTimestamp)
-        // Publish the latest camera data to NT and also update pose from swerve odometry measurements.
-        localizer.update(poseMeasurement, cameras.map { it.latestMeasurement }, chassisVelocities)
-        LoopLogger.record("Drive localizer")
+        LoopLogger.record("super Drive periodic")
 
         headingHistory.put(Timer.getMonotonicTimestamp(), heading.degrees)
-        LoopLogger.record("Recorded HeadingHistory")
 
-        if (cameras.isNotEmpty()) {
-            cameras.forEach {
-                table.getEntry("Cameras/${it.cameraName} isConnected").setBoolean(it.isConnected)
-                Logger.recordOutput("Drive/Cameras/${it.cameraName} isConnected", it.isConnected)
-            }
-        }
-        LoopLogger.record("Cameras isConnected publish")
-
-        // Log all the poses for debugging
-        Logger.recordOutput("Swerve/Odometry", localizer.odometryPose)
-        Logger.recordOutput("Swerve/InterpolatedOdometry", localizer.interpolatedOdometryPose)
-        Logger.recordOutput("Swerve/InterpolatedPose", localizer.interpolatedPose)
-        Logger.recordOutput("Swerve/Localizer Raw", localizer.rawPose)
-        Logger.recordOutput("Swerve/Localizer", localizer.pose)
-        Logger.recordOutput("Swerve/SingleTagPose", localizer.singleTagPose)
-
-
-        LoopLogger.record("Drive pirdc")
+        LoopLogger.record("Drive periodic")
     }
 
     /**
@@ -211,7 +135,7 @@ object Drive: SwerveDriveSubsystem(DriveConstants.drivetrainConstants, *DriveCon
     /**
      * Returns [ChassisSpeeds] with a percentage power from the driver controller.
      */
-    override fun getJoystickPercentageVelocity(): ChassisVelocities {
+    override fun getJoystickPercentageSpeed(): ChassisVelocities {
         val rawJoystick = OI.driveTranslation
         // Square drive input and apply demoSpeed
         val power = rawJoystick.norm.square() * demoSpeed * if (inSnakeMode) 0.8 else 1.0
@@ -239,7 +163,7 @@ object Drive: SwerveDriveSubsystem(DriveConstants.drivetrainConstants, *DriveCon
                     ).radians.asRotation2d - Rotation2d(90.0.degrees)
                 )
             } else {
-                driveVelocity(getChassisSpeedsFromJoystick().apply { omega = 0.0 })
+                driveVelocity(getChassisVelocitiesFromJoystick().apply { omega = 0.0 })
             }
         }
     }.onCancel {
@@ -249,11 +173,5 @@ object Drive: SwerveDriveSubsystem(DriveConstants.drivetrainConstants, *DriveCon
     fun zeroGyroCommand() = use(Drive) {
         println("zero gyro command")
         zeroGyro()
-    }
-
-    fun resetOdometryToAbsolute() {
-        println("resetting odometry to localizer pose")
-        val localizerPose = localizer.pose
-        pose = Pose2d(localizerPose.translation, pose.rotation)
     }
 }

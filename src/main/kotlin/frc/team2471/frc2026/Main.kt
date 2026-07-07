@@ -23,11 +23,13 @@ import org.team2471.frc.lib.util.RobotType
 import org.team2471.frc.lib.util.robotType
 import org.wpilib.command3.Mechanism
 import org.wpilib.command3.Scheduler
+import org.wpilib.driverstation.DriverStation
 import org.wpilib.driverstation.DriverStationDisplay
 import org.wpilib.driverstation.RobotState
 import org.wpilib.driverstation.internal.DriverStationBackend
 import org.wpilib.framework.OpModeRobot
 import org.wpilib.framework.RobotBase
+import org.wpilib.system.RobotController
 import java.net.NetworkInterface
 
 
@@ -41,11 +43,27 @@ import java.net.NetworkInterface
  * Most things can still function inside a companion object, although makes syntax slightly strange.
  */
 @OptIn(DelicateCoroutinesApi::class)
-class Robot : OpModeRobot(0.01) {
+object Robot : OpModeRobot(0.01) {
+
+    val isCompBot = getCompBotBoolean()
+    val scheduler = Scheduler.getDefault()
+
+    @get:JvmName("isRobotDisabled")
+    val isDisabled: Boolean
+        get() = RobotState.isDisabled()
+
+    var beforeFirstEnable = true
+        private set
+
+    // Subsystems:
+    // MUST define an individual variable for all subsystems inside this class or else @AutoLogOutput will not work -2025
+    val drive = Drive
+    val oi = OI
+
+    var allSubsystems = arrayOf<Mechanism>(drive)
+
     init {
         println("Robot init")
-        instance = this
-        // Tells FRC we use Kotlin
 
         // Set up data receivers & replay source
         when (robotType) {
@@ -74,10 +92,8 @@ class Robot : OpModeRobot(0.01) {
         // Start AdvantageKit logger
 
 
-        val dummyRobot = DummyRobot()
         // Call all subsystems, make sure their init's run
         allSubsystems.forEach { println("activating subsystem ${it.name}") }
-        println("FieldManager thinks the field is ${FieldManager.fieldDimensions.measureX.asFeet} feet big")
         println("OI driverController isConnected: ${OI.driverController.isConnected}")
         Autonomous.registerAutoOpModes()
         println("Autonomous paths count: ${Autonomous.paths.size}")
@@ -86,40 +102,6 @@ class Robot : OpModeRobot(0.01) {
 
         println("Finished Robot init")
     }
-
-    companion object {
-        val isCompBot = getCompBotBoolean()
-        val scheduler = Scheduler.getDefault()
-
-        lateinit var instance: Robot
-
-        val isEnabled get() = RobotState.isEnabled()
-        val isDisabled get() = RobotState.isDisabled()
-        val isTeleop get() = RobotState.isTeleop()
-        val isTeleopEnabled get() = RobotState.isTeleopEnabled()
-        val isAutonomous get() = RobotState.isAutonomous()
-        val isAutonomousEnabled get() = RobotState.isAutonomousEnabled()
-        val isUtility get() = RobotState.isUtility()
-        val isUtilityEnabled get() = RobotState.isUtilityEnabled()
-        val isDSAttached get() = RobotState.isDSAttached()
-        val isFMSAttached get() = RobotState.isFMSAttached()
-        val isEStopped get() = RobotState.isEStopped()
-
-        var beforeFirstEnable = true
-            private set
-
-        // Subsystems:
-        // MUST define an individual variable for all subsystems inside this class or else @AutoLogOutput will not work -2025
-        val drive = Drive
-        val oi = OI
-        val shooter = Shooter
-        val intake = Intake
-        val turret = Turret
-        val spindexer = Spindexer
-        val fieldManager = FieldManager
-        val aimUtils = AimUtils
-
-        var allSubsystems = arrayOf<Mechanism>(drive, intake, shooter, turret, spindexer)
 
         /**
          * Disables all defaults for all subsystems, except for the [exceptions] provided.
@@ -134,7 +116,6 @@ class Robot : OpModeRobot(0.01) {
                 it.defaultCommand = it.idle()
             }
         }
-    }
 
     /** This function is called periodically during all modes.  */
     override fun robotPeriodic() {
@@ -224,12 +205,6 @@ private fun getCompBotBoolean(): Boolean {
     } else { println("Not real so I am compbot") }
     println("I am compbot = $compBot")
     return compBot
-}
-
-class DummyRobot: LoggedRobot() {
-    init {
-        Logger.start()
-    }
 }
 
 
